@@ -1,73 +1,80 @@
 import re
+import recorder
+
 
 class Tokenizer(object):
 
-    def __init__(self,query):
-        self.query = query
+    def __init__(self, sql_query):
+        self.query = sql_query
 
         self.tokenizer = {
-            "drop_table":self.drop_table,
-            "drop_index":self.drop_index,
-            "create_table":self.create_table,
-            "create_index":self.create_index,
-            "select":self.select,
-            "insert":self.insert,
-            "delete":self.delete
+            "drop_table": self.drop_table,
+            "drop_index": self.drop_index,
+            "create_table": self.create_table,
+            "create_index": self.create_index,
+            "select": self.select,
+            "insert": self.insert,
+            "delete": self.delete
         }
 
     def tokenize(self):
-        for op,func in self.tokenizer.iteritems():
+        for op, func in self.tokenizer.iteritems():
             result = func()
             if result:
                 return result
 
     def drop_index(self):
-        matches = re.match('create\s+index\s+(?P<index_name>\S+)\s*;',self.query)
+        matches = re.match('create\s+index\s+(?P<index_name>\S+)\s*;', self.query)
         return{
-            'op':'drop_index',
-            'index_name':matches.group('index_name'),
+            'op': 'drop_index',
+            'index_name': matches.group('index_name'),
         } if matches else None
 
     def create_index(self):
-        matches = re.match('create\s+index\s+(?P<index_name>\S+)\s+on\s+(?P<table_name>\S+)\s*\(\s*(?P<key>\S+)\s*\)\s*;',self.query)
+        matches = re.match(
+            'create\s+index\s+(?P<index_name>\S+)\s+on\s+(?P<table_name>\S+)\s*\(\s*(?P<key>\S+)\s*\)\s*;',
+            self.query)
         return{
-            'op':'create_index',
-            'table_name':matches.group('table_name'),
-            'index_name':matches.group('index_name'),
-            'key':matches.group('key'),
+            'op': 'create_index',
+            'table_name': matches.group('table_name'),
+            'index_name': matches.group('index_name'),
+            'key': matches.group('key'),
         } if matches else None
 
     def drop_table(self):
-        matches = re.match('drop\s+table\s+(?P<table_name>\S+)\s*;',self.query)
+        matches = re.match('drop\s+table\s+(?P<table_name>\S+)\s*;', self.query)
         return{
-            'op':'drop_table',
-            'table_name':matches.group('table_name'),
+            'op': 'drop_table',
+            'table_name': matches.group('table_name'),
         } if matches else None
 
     def create_table(self):
+
         def match_schema(schema):
-            primary_key_match = re.match(r'\s*primary\s+key\s*\((?P<key>\S+)\)\s*;',schema)
+            primary_key_match = re.match(r'\s*primary\s+key\s*\(\s*(?P<key>\S+)\s*\)\s*', schema)
 
             if primary_key_match:
                 return {
-                            'type':'primary_key',
-                            'name':primary_key_match.group('key')
-                        }
+                    'type': 'primary_key',
+                    'name': primary_key_match.group('key')
+                }
 
-            schema_match = re.match(r'(?P<name>\S+)\s*(?P<type>\S+(\s*\(\d+\))?)\s*(?P<extra>.*)',schema)
+            schema_match = re.match(r'(?P<name>\S+)\s*(?P<type>\S+(\s*\(\d+\))?)\s*(?P<extra>.*)', schema)
 
-            char_match = re.match(r'char\s*\((?P<length>\d+)\)\s*',schema_match.group('type'))
+            char_match = re.match(r'char\s*\((?P<length>\d+)\)\s*', schema_match.group('type'))
 
-            unique_match = re.match('\s*unique\s*',schema_match.group('extra'))
+            unique_match = re.match('\s*unique\s*', schema_match.group('extra'))
 
             schema_dict = {
-                'name':schema_match.group('name'),
-                'unique':type(unique_match) != type(None)
+                'name': schema_match.group('name'),
+                'unique': unique_match is None
             }
 
             if char_match:
                 schema_dict['type'] = 'char'
-                schema_dict['length'] = char_match.group('length')
+                schema_dict['length'] = int(char_match.group('length'))
+                if schema_dict['length'] is None or schema_dict['length'] < 1:
+                    raise Exception('Char length is not correctly specified.')
             else:
                 schema_dict['type'] = schema_match.group('type')
 
@@ -76,49 +83,49 @@ class Tokenizer(object):
         exp_base = re.compile('create\s+table\s+(?P<table_name>\S+)\s\((?P<schema>.+)\)\s*')
         matches = exp_base.match(self.query)
 
-        if not matches :
+        if not matches:
             return None
 
         schemas = re.compile(',\s*').split(matches.group('schema'))
 
         return{
-            'op':'create_table',
-            'table_name':matches.group('table_name'),
-            'schemas':map(match_schema,schemas)
+            'op': 'create_table',
+            'table_name': matches.group('table_name'),
+            'schemas': map(match_schema, schemas)
         }
 
-    def match_conditions(self,extra):
-       if not extra:
-           return None
+    def match_conditions(self, extra):
+        if not extra:
+            return None
 
-       conditions_match = re.match(r'where\s+(?P<conditions>.+)\s*',extra)
-       conditions= re.split(r'\s*and\s*',conditions_match.group('conditions'))
+        conditions_match = re.match(r'where\s+(?P<conditions>.+)\s*', extra)
+        conditions = re.split(r'\s*and\s*', conditions_match.group('conditions'))
 
-       def match_each_conditions(condition):
-           matches = re.match(r'(?P<left>\S+)\s*(?P<op>(\<|\>|\=|\<\>|\>\=|\<\=))\s*(?P<right>\S+)\s*',condition)
-           return {
-               'left':matches.group('left'),
-               'right':matches.group('right'),
-               'op':matches.group('op')
-           }
-       return map(match_each_conditions,conditions)
+        def match_each_conditions(condition):
+            matches = re.match(r'(?P<left>\S+)\s*(?P<op>(<|>|=|<>|>=|<=))\s*(?P<right>\S+)\s*', condition)
+            return {
+                'left': matches.group('left'),
+                'right': matches.group('right'),
+                'op': matches.group('op')
+            }
+        return map(match_each_conditions, conditions)
 
     def select(self):
 
         def match_colums(colunms):
-            return re.split(r'\s*\,\s*',colunms)
+            return re.split(r'\s*,\s*', colunms)
 
-        exp_base = re.compile('select\s+(?P<colunms>[\w\d\*\,]+)\s+from\s+(?P<table_name>\S+)\s*(?P<extra>.+)?\s*;')
+        exp_base = re.compile('select\s+(?P<colunms>[\w\d\*,]+)\s+from\s+(?P<table_name>\S+)\s*(?P<extra>.+)?\s*;')
         matches = exp_base.match(self.query)
 
         if not matches:
             return None
 
         return {
-            'op':'select',
-            'table_name':matches.group('table_name'),
-            'colunms':match_colums(matches.group('colunms')),
-            'conditions':self.match_conditions(matches.group('extra'))
+            'op': 'select',
+            'table_name': matches.group('table_name'),
+            'colunms': match_colums(matches.group('colunms')),
+            'conditions': self.match_conditions(matches.group('extra'))
         }
 
     def insert(self):
@@ -129,9 +136,9 @@ class Tokenizer(object):
             return None
 
         return {
-            "op":'insert',
-            "table_name":matches.group("table_name"),
-            "values":re.split(r"\s*\,\s*",matches.group("values"))
+            "op": 'insert',
+            "table_name": matches.group("table_name"),
+            "values": re.split(r"\s*,\s*", matches.group("values"))
         }
 
     def delete(self):
@@ -143,10 +150,24 @@ class Tokenizer(object):
             return None
 
         return {
-            'op':'delete',
-            'table_name':matches.group('table_name'),
-            'conditions':self.match_conditions(matches.group('extra'))
+            'op': 'delete',
+            'table_name': matches.group('table_name'),
+            'conditions': self.match_conditions(matches.group('extra'))
         }
+
+def do_query(query):
+    sql_tokenizer = Tokenizer(query)
+    try:
+        op_dict = sql_tokenizer.tokenize()
+    except:
+        raise Exception('Syntax error')
+    if op_dict is None:
+        raise Exception('Syntax error')
+
+    if op_dict['op'] == 'create_table':
+        recorder.create_table_file(op_dict['table_name'], op_dict['schemas'])
+    elif op_dict['op'] == 'insert':
+        recorder.insert_record(op_dict['table_name'], op_dict['values'])
 
 if __name__ == '__main__':
     sql_1 = 'create table student (sno char(8),sname char(16) unique,sage int,sgender char (1),primary key ( sno ));'
@@ -160,5 +181,4 @@ if __name__ == '__main__':
     sql_7 = "insert into student values ('12345678','wy',22,'M');"
     sql_8 = "delete from student where sno = '88888888';"
 
-    tokenizer = Tokenizer(sql_7)
-    print tokenizer.tokenize()
+    do_query(sql_7)
