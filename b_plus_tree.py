@@ -1,406 +1,462 @@
-import sys
+from itertools import izip_longest
 import bisect
-import os.path
-import time
-import numpy
+import Queue
 
-class Node:
-    def __init__(self, filename=None):
-        if filename:
-            self.read_data_from_file(filename)
+class BPNode(object):
 
-    def read_data_from_file(self, filename):
-        global filecounter
-        global disk_counter
-        disk_counter += 1
-        filepath = 'data/'+filename
-        lines = [line.strip() for line in open(filepath)]
-        self.keys = [float(key) for key in lines[0].split(',')]
-        self.children = [child.strip() for child in lines[1].split(',')]
-        if lines[2] == 'True':
-            self.is_leaf = True
-        else:
-            self.is_leaf = False
-        self.filename = filename
-        if self.is_leaf and len(lines) >= 4:
-            self.next = lines[3].strip()
-        else:
-            self.next = None
+    def __init__(self):
+        self.keys = list()
+        self.values = list()
+        self.children = list()
+        self.next = None
 
-    def write_data_to_file(self, filename):
-        global disk_counter
-        disk_counter += 1
-        filepath = 'data/' + filename
-        with open(filepath, 'w') as f:
-            f.write(str(self.keys).strip('[]').replace("'",""))
-            f.write('\n')
-            f.write(str(self.children).strip('[]').replace("'",""))
-            f.write('\n')
-            f.write(str(self.is_leaf))
-            f.write('\n')
-            if self.is_leaf and self.next:
-                f.write(str(self.next))
-                f.write('\n')
+    def is_leaf(self):
+        return not bool(self.children)
 
-    def printContent(self):
-        print self.keys
-        print self.children
-        print self.is_leaf
-        print self.filename
-        if self.is_leaf:
-            print self.next
-        else:
-            print 'None'
+    def min(self):
+        node = self
+        while node.children:
+            node = node.children[0]
+        return node
 
-    def updateNode(self):
-        self.write_data_to_file(self.filename)
+    def max(self):
+        node = self
+        while node.children:
+            node = node.children[-1]
+        return node
 
-    def splitNode(self):
-        global filecounter
-        newNode = Node()
-        newNode.filename = str(filecounter)
-        filecounter = filecounter+1
-        if self.is_leaf:
-            newNode.is_leaf = True
-            mid = len(self.keys)/2
-            midKey = self.keys[mid]
-            # Update sibling parameters
-            newNode.keys = self.keys[mid:]
-            newNode.children = self.children[mid:]
-            # Update node parameters
-            self.keys = self.keys[:mid]
-            self.children = self.children[:mid]
-            # Update next node pointers
-            newNode.next = self.next
-            self.next = newNode.filename
-        else:
-            newNode.is_leaf = False
-            mid = len(self.keys)/2
-            midKey = self.keys[mid]
-            # Update sibling parameters
-            newNode.keys = self.keys[mid+1:]
-            newNode.children = self.children[mid+1:]
-            # Update node parameters
-            self.keys = self.keys[:mid]
-            self.children = self.children[:mid + 1]
-        self.updateNode()
-        newNode.updateNode()
-        return midKey, newNode
+    def __str__(self):
+        return '|%s|' % ' '.join(['{%s:%s}' % e for e in izip_longest(self.keys, self.values)])
 
-class BPlusTree:
-    def __init__(self, factor, rootfile=-1):
-        self.factor = factor
-        if rootfile == -1:
-            self.root = Node()
-            # Initialize root
-            global filecounter
-            self.root.is_leaf = True
-            self.root.keys = []
-            self.root.children = []
-            self.root.next = None
-            self.root.filename = str(filecounter)
-            filecounter += 1
-            self.root.updateNode()
-        else:
-            self.root = Node(rootfile)
+    __repr__ = __str__
 
-    def search(self, key):
-        return self.tree_search(key, self.root)
 
-    def tree_search(self, key, node):
-        if node.is_leaf:
-            return node
-        else:
-            if key < node.keys[0]:
-                return self.tree_search(key, Node(node.children[0]))
-            for i in range(len(node.keys)-1):
-                if key>=node.keys[i] and key<node.keys[i+1]:
-                    return self.tree_search(key, Node(node.children[i+1]))
-            if key >= node.keys[-1]:
-                return self.tree_search(key, Node(node.children[-1]))
+class BPTree(object):
 
-    def tree_search_for_query(self, key, node):
-        if node.is_leaf:
-            return node
-        else:
-            if key <= node.keys[0]:
-                return self.tree_search_for_query(key, Node(node.children[0]))
-            for i in range(len(node.keys)-1):
-                if key>node.keys[i] and key<=node.keys[i+1]:
-                    return self.tree_search_for_query(key, Node(node.children[i+1]))
-            if key > node.keys[-1]:
-                return self.tree_search_for_query(key, Node(node.children[-1]))
+    def __init__(self, degree = 3):
+        self.degree = degree
+        self.root = BPNode()
 
-    def point_query(self, key):
-        all_keys = []
-        all_values = []
-        start_leaf = self.tree_search_for_query(key, self.root)
-        keys, values, next_node = self.get_data_in_key_range(key, key, start_leaf)
-        all_keys += keys
-        all_values += values
-        while next_node:
-            keys, values, next_node = self.get_data_in_key_range(key, key, Node(next_node.filename))
-            all_keys += keys
-            all_values += values
-        return all_keys, all_values
+        self._minkeys = self.degree - 1
+        self._minchildren = self.degree
+        self._maxkeys = 2 * self.degree - 1
+        self._maxchildren = 2 * self.degree
+        #self.disk_write(self.root)
 
-    def range_query(self, keyMin, keyMax):
-        all_keys = []
-        all_values = []
-        start_leaf = self.tree_search_for_query(keyMin, self.root)
-        keys, values, next_node = self.get_data_in_key_range(keyMin, keyMax, start_leaf)
-        all_keys += keys
-        all_values += values
-        while next_node:
-            keys, values, next_node = self.get_data_in_key_range(keyMin, keyMax, Node(next_node.filename))
-            all_keys += keys
-            all_values += values
-        return all_keys, all_values
-
-    def get_data_in_key_range(self, keyMin, keyMax, node):
-        keys = []
-        values = []
-        for i in range(len(node.keys)):
-            key = node.keys[i]
-            if keyMin <= key and key <= keyMax:
-                keys.append(key)
-                values.append(self.read_data_file(node.children[i]))
-        if node.keys[-1] > keyMax:
-            next_node = None
-        else:
-            if node.next:
-                next_node = Node(node.next)
+    def search(self, node, key):
+        i = bisect.bisect_left(node.keys, key)
+        if i < len(node.keys) and key == node.keys[i]:
+            if node.is_leaf():
+                return (node, i)
             else:
-                next_node = None
-        return keys, values, next_node
+                return self.search(node.children[i+1], key)
+        if node.is_leaf():
+            return (None, None)
+        else:
+            # self.disk_read(node.children[i])
+            return self.search(node.children[i], key)
+
+    def ceiling(self, node, key):
+        i = bisect.bisect(node.keys, key)
+        if i < len(node.keys) and key == node.keys[i]:
+            if node.is_leaf():
+                return key
+            else:
+                return self.ceiling(node.children[i+1], key)
+        if node.is_leaf():
+            if i == len(node.keys):
+                kp = node.keys[-1]
+                if node.keys[-1] < key:
+                    if len(node.next.keys) > 0:
+                        return node.next.keys[0]
+                else:
+                    return kp
+            return node.keys[i]
+        else:
+            return self.ceiling(node.children[i], key)
+
+    def split_child(self, x, i, y):
+        z = BPNode()
+        z.keys = y.keys[self.degree:]
+        z.values = y.values[self.degree:]
+        if not y.is_leaf():
+            z.children = y.children[self.degree:]
+            y.next = None
+        else:
+            z.keys.insert(0, y.keys[self.degree-1])
+            z.values.insert(0, y.values[self.degree-1])
+            z.next = y.next
+            y.next = z
+        x.children.insert(i+1, z)
+        x.keys.insert(i, y.keys[self.degree-1])
+        #x.values.insert(i, y.values[self.degree-1])
+        y.keys = y.keys[:self.degree-1]
+        y.values = y.values[:self.degree-1]
+        y.children = y.children[:self.degree]
+        #self.disk_write(y)
+        #self.disk_write(z)
+        #self.disk_write(x)
 
     def insert(self, key, value):
-        ans, newFilename =  self.tree_insert(key, value, self.root)
-        if ans:
-            global filecounter
-            newRoot = Node()
-            newRoot.is_leaf = False
-            newRoot.filename = str(filecounter)
-            filecounter += 1
-            newRoot.keys = [ans]
-            newRoot.children = [self.root.filename, newFilename]
-            newRoot.updateNode()
-            self.root = newRoot
-
-    def tree_insert(self, key, value, node):
-        if node.is_leaf:
-            index = bisect.bisect(node.keys, key)
-            node.keys[index:index] = [key]
-            filename = self.create_data_file(value)
-            node.children[index:index] = [filename]
-            node.updateNode()
-            if len(node.keys) <= self.factor-1:
-                return None, None
-            else:
-                midKey, newNode = node.splitNode()
-                return midKey, newNode.filename
+        if len(self.root.keys) == self._maxkeys:
+            oldroot = self.root
+            self.root = BPNode()
+            self.root.children.append(oldroot)
+            self.split_child(self.root, 0, oldroot)
+            self.insert_nonfull(self.root, key, value)
         else:
-            if key < node.keys[0]:
-                ans, newFilename = self.tree_insert(key, value, Node(node.children[0]))
-            for i in range(len(node.keys)-1):
-                if key>=node.keys[i] and key<node.keys[i+1]:
-                    ans, newFilename = self.tree_insert(key, value, Node(node.children[i+1]))
-            if key >= node.keys[-1]:
-                ans, newFilename = self.tree_insert(key, value, Node(node.children[-1]))
-        if ans:
-            index = bisect.bisect(node.keys, ans)
-            node.keys[index:index] = [ans]
-            node.children[index+1:index+1] = [newFilename]
-            if len(node.keys) <= self.factor-1:
-                node.updateNode()
-                return None, None
-            else:
-                midKey, newNode = node.splitNode()
-                return midKey, newNode.filename
+            self.insert_nonfull(self.root, key, value)
+
+    def insert_nonfull(self, x, key, value):
+        # performance bottleneck fixed by bisect
+        #while i > 0 and key < x.keys[i-1]:
+        #    i -= 1
+        i = bisect.bisect_left(x.keys, key)
+        if x.is_leaf():
+            x.keys.insert(i, key)
+            x.values.insert(i, value)
+            #self.disk_write(x)
         else:
-            return None, None
+            #self.disk_read(x.children[i])
+            if len(x.children[i].keys) == self._maxkeys:
+                self.split_child(x, i, x.children[i])
+                if key > x.keys[i]:
+                    i += 1
+            self.insert_nonfull(x.children[i], key, value)
 
-    def create_data_file(self, value):
-        global filecounter
-        global disk_counter
-        disk_counter += 1
-        filename = str(filecounter)
-        filepath = 'data/'+filename
-        with open(filepath, 'w') as f:
-            f.write(str(value))
-        filecounter += 1
-        return filename
+    def delete(self, key):
+        self._delete(self.root, key)
 
-    def read_data_file(self, filename):
-        global disk_counter
-        disk_counter += 1
-        filepath = 'data/'+filename
-        lines = [line.strip() for line in open(filepath)]
-        return lines[0].strip()
+    def _delete(self, node, key):
+        """fixed!!!"""
+        if key in node.keys:
+            if node.is_leaf():
+                index = node.keys.index(key)
+                node.keys.pop(index)
+                node.values.pop(index)
+            else:
+                ki = node.keys.index(key)
+                if len(node.children[ki].keys) >= self.degree:
+                    nmax = node.children[ki].max()
+                    nmin = node.children[ki+1].min()
+                    kp = nmax.keys[-1]
+                    self._delete(node.children[ki], kp)
+                    node.keys[ki] = kp
+                    nmin.keys[0] = kp
+                    nmin.values[0] = nmax.values[-1]
+                elif len(node.children[ki+1].keys) >= self.degree:
+                    nmin = node.children[ki+1].min()
+                    nmin.keys.pop(0)
+                    nmin.values.pop(0)
+                    kp = nmin.keys[0]
+                    node.keys[ki] = nmin.keys[0]
+                else:
+                    rnode = node.children.pop(ki+1)
+                    if node.children[ki].is_leaf():
+                        node.keys.pop(ki)
+                        node.children[ki].keys.extend(rnode.keys)
+                        node.children[ki].values.extend(rnode.values)
+                        node.children[ki].next = rnode.next
+                    else:
+                        node.children[ki].keys.append(node.keys.pop(ki))
+                        node.children[ki].keys.extend(rnode.keys)
+                        node.children[ki].children.extend(rnode.children)
+                    if node == self.root and not node.keys:
+                        self.root = node.children[ki]
+                    self._delete(node.children[ki], key)
+        else:
+            ci = bisect.bisect_left(node.keys, key)
+            if len(node.children[ci].keys) == self._minkeys:
+                if ci >= 1 and len(node.children[ci-1].keys) > self._minkeys:
+                    if node.children[ci].is_leaf():
+                        kp = node.children[ci-1].keys.pop(-1)
+                        vp = node.children[ci-1].values.pop(-1)
+                        node.keys[ci-1] = kp
+                        node.children[ci].keys.insert(0, kp)
+                        node.children[ci].values.insert(0, vp)
+                    else:
+                        node.children[ci].keys.insert(0, node.keys[ci-1])
+                        node.keys[ci-1] = node.children[ci-1].keys.pop(-1)
+                        node.children[ci].children = node.children[ci-1].children[-1:] + node.children[ci].children
+                        node.children[ci-1].children = node.children[ci-1].children[:-1]
+                    self._delete(node.children[ci], key)
+                elif ci < len(node.keys) and len(node.children[ci+1].keys) > self._minkeys:
+                    if node.children[ci].is_leaf():
+                        kp = node.children[ci+1].keys.pop(0)
+                        vp = node.children[ci+1].values.pop(0)
+                        node.children[ci].keys.append(kp)
+                        node.children[ci].values.append(vp)
+                        node.keys[ci] = node.children[ci+1].keys[0]
+                    else:
+                        node.children[ci].keys.append(node.keys[ci])
+                        node.keys[ci] = node.children[ci+1].keys.pop(0)
+                        node.children[ci].children.extend(node.children[ci+1].children[:1])
+                        node.children[ci+1].children = node.children[ci+1].children[1:]
+                    self._delete(node.children[ci], key)
+                else:
+                    if ci >= 1:
+                        rnode = node.children.pop(ci)
+                        if node.children[ci-1].is_leaf():
+                            node.keys.pop(ci-1)
+                            node.children[ci-1].keys.extend(rnode.keys)
+                            node.children[ci-1].values.extend(rnode.values)
+                            node.children[ci-1].next = rnode.next
+                        else:
+                            node.children[ci-1].keys.append(node.keys.pop(ci-1))
+                            node.children[ci-1].keys.extend(rnode.keys)
+                            node.children[ci-1].children.extend(rnode.children)
+                        if node == self.root and not node.keys:
+                            self.root = node.children[ci-1]
+                        self._delete(node.children[ci-1], key)
+                    else:
+                        rnode = node.children.pop(ci+1)
+                        if node.children[ci].is_leaf():
+                            node.keys.pop(ci)
+                            node.children[ci].keys.extend(rnode.keys)
+                            node.children[ci].values.extend(rnode.values)
+                            node.children[ci].next = rnode.next
+                        else:
+                            node.children[ci].keys.append(node.keys.pop(ci))
+                            node.children[ci].keys.extend(rnode.keys)
+                            node.children[ci].children.extend(rnode.children)
+                        if node == self.root and not node.keys:
+                            self.root = node.children[ci]
+                        self._delete(node.children[ci], key)
+            else:
+                self._delete(node.children[ci], key)
 
-def save_tree(root, filecounter):
-    filepath = '.bplustree'
-    with open(filepath, 'w') as f:
-        f.write(root)
-        f.write('\n')
-        f.write(str(filecounter))
-        f.write('\n')
+    def keys(self, kmin = None, kmax = None):
+        keys = []
 
-def write_stats():
-    filepath = 'stats.txt'
-    global insert_time
-    global search_time
-    global range_time
-    insert_time = numpy.array(insert_time)
-    search_time = numpy.array(search_time)
-    range_time  = numpy.array(range_time)
-    with open(filepath, 'w') as f:
-        if len(insert_time)>0:
-            f.write('Insert time statistics (In seconds)..\n')
-            f.write('Min : '+str(numpy.amin(insert_time))+'\n')
-            f.write('Max : '+str(numpy.amax(insert_time))+'\n')
-            f.write('Mean: '+str(numpy.mean(insert_time))+'\n')
-            f.write('STD : '+str(numpy.std(insert_time))+'\n')
+        if kmin is None:
+            kmin = self.min()
+        if kmax is None:
+            kmax = self.max()
 
-            f.write('Insert disk statistics..\n')
-            f.write('Min : '+str(numpy.amin(insert_disk))+'\n')
-            f.write('Max : '+str(numpy.amax(insert_disk))+'\n')
-            f.write('Mean: '+str(numpy.mean(insert_disk))+'\n')
-            f.write('STD : '+str(numpy.std(insert_disk))+'\n')
-            f.write('\n')
-        if len(search_time)>0:
-            f.write('Point time statistics (In seconds)..\n')
-            f.write('Min : '+str(numpy.amin(search_time))+'\n')
-            f.write('Max : '+str(numpy.amax(search_time))+'\n')
-            f.write('Mean: '+str(numpy.mean(search_time))+'\n')
-            f.write('STD : '+str(numpy.std(search_time))+'\n')
+        return self._keys(self.root, kmin, kmax, keys)
 
-            f.write('Point disk statistics..\n')
-            f.write('Min : '+str(numpy.amin(search_disk))+'\n')
-            f.write('Max : '+str(numpy.amax(search_disk))+'\n')
-            f.write('Mean: '+str(numpy.mean(search_disk))+'\n')
-            f.write('STD : '+str(numpy.std(search_disk))+'\n')
-            f.write('\n')
-        if len(range_time)>0:
-            f.write('Range time statistics (In seconds)..\n')
-            f.write('Min : '+str(numpy.amin(range_time))+'\n')
-            f.write('Max : '+str(numpy.amax(range_time))+'\n')
-            f.write('Mean: '+str(numpy.mean(range_time))+'\n')
-            f.write('STD : '+str(numpy.std(range_time))+'\n')
+    def _keys(self, node, kmin, kmax, keys):
+        """return [k for k in allkeys if kmin <= k <= kmax]"""
+        imin = bisect.bisect_left(node.keys, kmin)
+        imax = bisect.bisect(node.keys, kmax)
 
-            f.write('Range disk statistics..\n')
-            f.write('Min : '+str(numpy.amin(range_disk))+'\n')
-            f.write('Max : '+str(numpy.amax(range_disk))+'\n')
-            f.write('Mean: '+str(numpy.mean(range_disk))+'\n')
-            f.write('STD : '+str(numpy.std(range_disk))+'\n')
-            f.write('\n')
+        if node.children:
+            for e in node.children[imin:imax+1]:
+                self._keys(e, kmin, kmax, keys)
+        if node.is_leaf():
+            keys.extend(node.keys[imin:imax])
+
+        return keys
+
+    def iterkeys(self, kmin = None, kmax = None):
+        if kmin is None:
+            kmin = self.min()
+        if kmax is None:
+            kmax = self.max()
+
+        return self._iterkeys(self.root, kmin, kmax)
+
+    def _iterkeys(self, node, kmin, kmax):
+        """return [k for k in allkeys if kmin <= k <= kmax]"""
+        imin = bisect.bisect_left(node.keys, kmin)
+        imax = bisect.bisect(node.keys, kmax)
+
+        if node.children:
+            for e in node.children[imin:imax+1]:
+                for k in self._iterkeys(e, kmin, kmax):
+                    yield k
+        if node.is_leaf():
+            for i in xrange(imin, imax):
+                yield node.keys[i]
+
+    def values(self, kmin = None, kmax = None):
+        values = []
+
+        if kmin is None:
+            kmin = self.min()
+        if kmax is None:
+            kmax = self.max()
+
+        return self._values(self.root, kmin, kmax, values)
+
+    def _values(self, node, kmin, kmax, values):
+        """return [v for k in allkeys if kmin <= k <= kmax]"""
+        imin = bisect.bisect_left(node.keys, kmin)
+        imax = bisect.bisect(node.keys, kmax)
+
+        if node.children:
+            for e in node.children[imin:imax+1]:
+                self._values(e, kmin, kmax, values)
+        if node.is_leaf():
+            values.extend(node.values[imin:imax])
+
+        return values
+
+    def itervalues(self, kmin = None, kmax = None):
+        if kmin is None:
+            kmin = self.min()
+        if kmax is None:
+            kmax = self.max()
+
+        return self._itervalues(self.root, kmin, kmax)
+
+    def _itervalues(self, node, kmin, kmax):
+        """return [k for k in allkeys if kmin <= k <= kmax]"""
+        imin = bisect.bisect_left(node.keys, kmin)
+        imax = bisect.bisect(node.keys, kmax)
+
+        if node.children:
+            for e in node.children[imin:imax+1]:
+                for v in self._itervalues(e, kmin, kmax):
+                    yield v
+        if node.is_leaf():
+            for i in xrange(imin, imax):
+                yield node.values[i]
+
+    def items(self, kmin = None, kmax = None):
+        items = []
+
+        if kmin is None:
+            kmin = self.min()
+        if kmax is None:
+            kmax = self.max()
+
+        return self._items(self.root, kmin, kmax, items)
+
+    def _items(self, node, kmin, kmax, items):
+        """return [(k,v) for k in allkeys if kmin <= k <= kmax]"""
+        imin = bisect.bisect_left(node.keys, kmin)
+        imax = bisect.bisect(node.keys, kmax)
+
+        if node.children:
+            for e in node.children[imin:imax+1]:
+                self._items(e, kmin, kmax, items)
+        if node.is_leaf():
+            items.extend(zip(node.keys[imin:imax], node.values[imin:imax]))
+
+        return items
+
+    def iteritems(self, kmin = None, kmax = None):
+        if kmin is None:
+            kmin = self.min()
+        if kmax is None:
+            kmax = self.max()
+
+        return self._iteritems(self.root, kmin, kmax)
+
+    def _iteritems(self, node, kmin, kmax):
+        """return [k for k in allkeys if kmin <= k <= kmax]"""
+        imin = bisect.bisect_left(node.keys, kmin)
+        imax = bisect.bisect(node.keys, kmax)
+
+        if node.children:
+            for e in node.children[imin:imax+1]:
+                for i in self._iteritems(e, kmin, kmax):
+                    yield i
+        if node.is_leaf():
+            for i in xrange(imin, imax):
+                yield (node.keys[i], node.values[i])
+
+    def min(self):
+        node = self.root
+        while node.children:
+            node = node.children[0]
+        return node.keys[0]
+
+    def max(self):
+        node = self.root
+        while node.children:
+            node = node.children[-1]
+        return node.keys[-1]
+
+    def bft(self, node, level = 1):
+        """Breadth first traversal."""
+        q = Queue.Queue()
+        level = level
+        q.put((level, node))
+
+        while not q.empty():
+            level, node = q.get()
+            yield (level, node)
+            for e in node.children:
+                q.put((level+1, e))
+
+    def levels(self):
+        leveldict = {}
+
+        for level, node in self.bft(self.root):
+            leveldict.setdefault(level, []).append(node)
+
+        return leveldict
+
+    def pprint(self, width = 80):
+        leveldict = self.levels()
+        keys = leveldict.keys()
+        for k in keys:
+            print ' '.join(str(e) for e in leveldict[k]).center(width)
+
+    def __setitem__(self, k, v):
+        self.insert(k, v)
+
+    def __getitem__(self, k):
+        node, i = self.search(self.root, k)
+        if node:
+            return node.values[i]
+        else:
+            return None
+
+    def __delitem__(self, k):
+        self._delete(self.root, k)
+
+def test_BPTree():
+    b = BPTree(2)
+    kv = [
+        (0, 'zero'),
+        (8, 'eight'),
+        (9, 'nine'),
+        (1, 'one'),
+        (7, 'seven'),
+        (2, 'two'),
+        (6, 'six'),
+        (3, 'three'),
+        (5, 'five'),
+        (4, 'four'),
+        (10, 'ten'),
+        (11, 'eleven'),
+    ]
+    for k, v in kv:
+        b[k] = v
+    b.pprint()
+    n,i = b.search(b.root, 0)
+    while n.next:
+        print n.next
+        n = n.next
+    del b[11]
+    del b[1]
+    del b[2]
+    del b[3]
+    del b[9]
+    b.pprint()
+    del b[4]
+    b.pprint()
+    print b[10]
+    print 'min key: ', b.min()
+    print 'max key: ', b.max()
+    print 'ceiling: ', b.ceiling(b.root, 7.4)
+    print 'keys                :', b.keys()
+    print 'iterkeys()          :', list(b.iterkeys())
+    print 'keys(min, max)      :', b.keys(3.4, 7.9)
+    print 'iterkeys(min, max)  :', list(b.iterkeys(3.4, 7.9))
+    print 'values()            :', b.values()
+    print 'itervalues()        :', list(b.itervalues())
+    print 'values(min, max)    :', b.values(3.4, 7.9)
+    print 'itervalues(min, max):', list(b.itervalues(3.4, 7.9))
+    print 'items()             :', b.items()
+    print 'iteritems()         :', list(b.iteritems())
+    print 'items(min, max)     :', b.items(3.4, 7.9)
+    print 'iteritems(min, max) :', list(b.iteritems(3.4, 7.9))
+
+#################################### END #######################################
 
 if __name__ == '__main__':
-    # Initialize variables
-    filecounter = 0         # Used to keep track of filename
-    disk_counter = 0         # Used to count disk access
-    start_time = 0             # Used to store start time
-    end_time = 0             # Used to store end time
-    insert_time = []
-    search_time = []
-    range_time = []
-    insert_disk = []
-    search_disk = []
-    range_disk = []
-    # Load Configuration
-    #configs = [line.strip() for line in open('bplustree.config')]
-    max_num_keys = 32 #int(configs[0].strip())
-    factor = max_num_keys-1
-
-    # Do not initialize the tree.. Load from .bplustree
-    if os.path.isfile('.bplustree'):
-        filepath = '.bplustree'
-        lines = [line.strip() for line in open(filepath)]
-        root = lines[0].strip()
-        tree = BPlusTree(factor, root)
-        filecounter = int(lines[1].strip())
-    # Initialize the tree
-    else:
-        tree = BPlusTree(factor)
-
-    # Perform insert operations
-    if sys.argv[1] == 'insert':
-        print 'Inserting Data'
-        if len(sys.argv) >= 3:
-            filepath = sys.argv[2]
-        else:
-            filepath = 'assgn2_bplus_data.txt'
-        lines = [line.strip() for line in open(filepath)]
-        for line in lines:
-            line = line.split()
-            key = float(line[0].strip())
-            value = line[1].strip()
-            start_time = time.clock()
-            disk_counter = 0
-            tree.insert(key, value)
-            end_time = time.clock()
-            insert_time.append(end_time-start_time)
-            insert_disk.append(disk_counter)
-        print 'Insertions successfully completed'
-
-    # Perform query operations
-    if sys.argv[1] == 'query':
-        print 'Running queries'
-        if len(sys.argv) >= 3:
-            filepath = sys.argv[2]
-        else:
-            filepath = 'querysample.txt'
-        # Query
-        lines = [line.strip() for line in open(filepath)]
-        for line in lines:
-            line = line.split()
-            operation = int(line[0].strip())
-            # Insertion
-            if operation == 0:
-                key = float(line[1].strip())
-                value = line[2].strip()
-                start_time = time.clock()
-                disk_counter = 0
-                tree.insert(key, value)
-                end_time = time.clock()
-                insert_time.append(end_time-start_time)
-                insert_disk.append(disk_counter)
-                print 'insert:', key, value
-            # Point Query
-            elif operation == 1:
-                key = float(line[1].strip())
-                start_time = time.clock()
-                disk_counter = 0
-                keys, values = tree.point_query(key)
-                end_time = time.clock()
-                search_time.append(end_time-start_time)
-                search_disk.append(disk_counter)
-                print 'search:', key
-                if len(values) > 0:
-                    print values
-                else:
-                    print 'Not Found'
-
-            # Range Query
-            elif operation == 2:
-                center = float(line[1].strip())
-                qrange = float(line[2].strip())
-                keyMin = center-qrange
-                keyMax = center+qrange
-                print 'range:'
-                eps = 0.00000001
-                start_time = time.clock()
-                disk_counter = 0
-                keys, values = tree.range_query(keyMin-eps, keyMax+eps)
-                end_time = time.clock()
-                range_time.append(end_time-start_time)
-                range_disk.append(disk_counter)
-                if len(values) > 0:
-                    zipped = zip(keys, values)
-                    print zipped
-                else:
-                    print 'Not Found'
-
-    # Save tree configuration
-    write_stats()
-    save_tree(tree.root.filename, filecounter)
+    test_BPTree()

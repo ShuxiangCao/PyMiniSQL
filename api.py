@@ -164,12 +164,69 @@ def do_query(query):
     if op_dict is None:
         raise Exception('Syntax error')
 
+    ret = None
+
     if op_dict['op'] == 'create_table':
-        recorder.create_table_file(op_dict['table_name'], op_dict['schemas'])
+        ret = recorder.create_table_file(op_dict['table_name'], op_dict['schemas'])
     elif op_dict['op'] == 'insert':
-        recorder.insert_record(op_dict['table_name'], op_dict['values'])
+        ret = recorder.insert_record(op_dict['table_name'], op_dict['values'])
+    elif op_dict['op'] == 'select':
+        ret = recorder.select_record(op_dict['table_name'],op_dict['colunms'],op_dict['conditions'])
+    elif op_dict['op'] == 'create_index':
+        ret = recorder.create_index(op_dict['table_name'],op_dict['index_name'],op_dict['key'])
+    else:
+        print op_dict
+        raise Exception("%s doesn\'t support" % query)
 
 if __name__ == '__main__':
+
+    test_banch_1 = [
+        "create table student (sno char(8),sname char(16) unique,sage int,sgender char (1),score float,primary key ( sno ));",
+        "delete from student;",
+        "insert into student values ('12345678',	'wy1',22,'M',95);",
+        "insert into student values ('12345679',	'wy2',19,'F',100);",
+        "create index stunameidx on student ( sname );",
+        "insert into student values ('12345682',	'wy5',14,'M',60);",
+        "insert into student values ('12345684',	'wy6',25,'F',63);",
+        "select * from student;",
+        "select * from student where sno = '12345679';",
+        "select * from student where score >= 90 and score <=95;",
+        "select * from student where score > 60 and score <65;",
+        "select * from student where score >= 98;",
+        "select * from student where sage > 20 and sgender = 'F';",
+        "delete from student where sno = '12345678';",
+        "delete from student where sname = 'wy2';",
+        "select * from student;",
+        "insert into student values ('12345681',	'wy4',23,'F',96);",
+        "insert into student values ('12345670',	'wy3',25,'M',0);",
+        "select * from student where score < 10;",
+        "select * from student where sgender <> 'F';",
+        "drop index stunameidx;",
+        "drop table student;"
+    ]
+
+    test_banch_2 = [
+        "create table orders (	orderkey int, custkey int unique,orderstatus char(1),totalprice	float,clerk char(15),comments char(79) unique,primary key(orderkey));",
+        "select * from orders where orderkey=182596;",
+        "select * from orders where totalprice > 500000;",
+        "insert into orders values (541959,408677,'F',241827.84,'Clerk#000002574','test: check unique');",
+        "create index custkeyidx on orders (custkey);",
+        "insert into orders values (541959,408677,'F',241827.84,'Clerk#000002574','test: check unique');",
+        "delete from orders where custkey > 430000;",
+        "drop index custkeyidx;",
+        "create index commentsidx on orders (comments);",
+        "delete from orders where custkey=408677;",
+        "insert into orders values (541959,408677,'F',241827.84,'Clerk#000002574','test: check unique');",
+        "select * from orders where orderstatus='O' and comments='test: check unique';",
+        "select * from orders where totalprice > 183500 and totalprice < 190000 and comments='en asymptotes are carefully qu';",
+        "select * from orders where totalprice > 10 and totalprice < 1;",
+        "delete from orders;",
+        "select * from orders;",
+        "drop table orders;"
+    ]
+
+
+
     sql_1 = 'create table student (sno char(8),sname char(16) unique,sage int,sgender char (1),primary key ( sno ));'
     sql_2 = 'drop table student;'
     sql_3 = 'create index stunameidx on student ( sname );'
@@ -181,4 +238,12 @@ if __name__ == '__main__':
     sql_7 = "insert into student values ('12345678','wy',22,'M');"
     sql_8 = "delete from student where sno = '88888888';"
 
-    do_query(sql_7)
+    sql_9 = "select * from student where sgender = 'M';"
+
+    #do_query(sql_1)
+    #do_query(sql_7)
+    #do_query(sql_9)
+
+    map(do_query,test_banch_1)
+    #do_query(sql_9)
+    recorder.debug('student')
