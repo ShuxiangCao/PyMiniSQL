@@ -98,14 +98,19 @@ class BPTree(object):
         #self.disk_write(x)
 
     def insert(self, key, value):
+
+        if key in self.keys():
+            self[key].append(value)
+            return
+
         if len(self.root.keys) == self._maxkeys:
             oldroot = self.root
             self.root = BPNode()
             self.root.children.append(oldroot)
             self.split_child(self.root, 0, oldroot)
-            self.insert_nonfull(self.root, key, value)
+            self.insert_nonfull(self.root, key, [value])
         else:
-            self.insert_nonfull(self.root, key, value)
+            self.insert_nonfull(self.root, key, [value])
 
     def insert_nonfull(self, x, key, value):
         # performance bottleneck fixed by bisect
@@ -124,8 +129,14 @@ class BPTree(object):
                     i += 1
             self.insert_nonfull(x.children[i], key, value)
 
-    def delete(self, key):
-        self._delete(self.root, key)
+    def delete(self, key ,value):
+        if self[key] is None:
+            return
+
+        self[key].remove(value)
+
+        if len(self[key]) == 0:
+            self._delete(self.root, key)
 
     def _delete(self, node, key):
         """fixed!!!"""
@@ -154,7 +165,6 @@ class BPTree(object):
                     rnode = node.children.pop(ki+1)
                     if node.children[ki].is_leaf():
                         node.keys.pop(ki)
-                        node.children[ki].keys.extend(rnode.keys)
                         node.children[ki].values.extend(rnode.values)
                         node.children[ki].next = rnode.next
                     else:
@@ -228,6 +238,9 @@ class BPTree(object):
     def keys(self, kmin = None, kmax = None):
         keys = []
 
+        if self.is_empty():
+            return []
+
         if kmin is None:
             kmin = self.min()
         if kmax is None:
@@ -271,6 +284,9 @@ class BPTree(object):
 
     def values(self, kmin = None, kmax = None):
         values = []
+
+        if self.is_empty():
+            return []
 
         if kmin is None:
             kmin = self.min()
@@ -357,6 +373,9 @@ class BPTree(object):
             for i in xrange(imin, imax):
                 yield (node.keys[i], node.values[i])
 
+    def is_empty(self):
+        return self.root.is_leaf() and len(self.root.keys) == 0
+
     def min(self):
         node = self.root
         while node.children:
@@ -405,8 +424,8 @@ class BPTree(object):
         else:
             return None
 
-    def __delitem__(self, k):
-        self._delete(self.root, k)
+    #def __delitem__(self, k):
+    #    self._delete(self.root, k)
 
 def test_BPTree():
     b = BPTree(2)

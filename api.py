@@ -24,7 +24,7 @@ class Tokenizer(object):
                 return result
 
     def drop_index(self):
-        matches = re.match('create\s+index\s+(?P<index_name>\S+)\s*;', self.query)
+        matches = re.match('drop\s+index\s+(?P<index_name>\S+)\s*;', self.query)
         return{
             'op': 'drop_index',
             'index_name': matches.group('index_name'),
@@ -80,7 +80,7 @@ class Tokenizer(object):
 
             return schema_dict
 
-        exp_base = re.compile('create\s+table\s+(?P<table_name>\S+)\s\((?P<schema>.+)\)\s*')
+        exp_base = re.compile('\s*create\s+table\s+(?P<table_name>\S+)\s*\(\s*(?P<schema>.+)\s*\)\s*;')
         matches = exp_base.match(self.query)
 
         if not matches:
@@ -102,7 +102,7 @@ class Tokenizer(object):
         conditions = re.split(r'\s*and\s*', conditions_match.group('conditions'))
 
         def match_each_conditions(condition):
-            matches = re.match(r'(?P<left>\S+)\s*(?P<op>(<|>|=|<>|>=|<=))\s*(?P<right>\S+)\s*', condition)
+            matches = re.match(r'(?P<left>\S+)\s*(?P<op>(<=|>=|=|<>|>|<))\s*(?P<right>.+)\s*', condition)
             return {
                 'left': matches.group('left'),
                 'right': matches.group('right'),
@@ -157,6 +157,7 @@ class Tokenizer(object):
 
 def do_query(query):
     sql_tokenizer = Tokenizer(query)
+    print query
     try:
         op_dict = sql_tokenizer.tokenize()
     except:
@@ -174,9 +175,17 @@ def do_query(query):
         ret = recorder.select_record(op_dict['table_name'],op_dict['colunms'],op_dict['conditions'])
     elif op_dict['op'] == 'create_index':
         ret = recorder.create_index(op_dict['table_name'],op_dict['index_name'],op_dict['key'])
+    elif op_dict['op'] == 'drop_index':
+        ret = recorder.delete_index(op_dict['index_name'])
+    elif op_dict['op'] == 'delete':
+        ret = recorder.delete_records(op_dict['table_name'],op_dict['conditions'])
+    elif op_dict['op'] == 'drop_table':
+        ret = recorder.delete_table_file(op_dict['table_name'])
     else:
         print op_dict
         raise Exception("%s doesn\'t support" % query)
+
+    print ret
 
 if __name__ == '__main__':
 
@@ -189,11 +198,8 @@ if __name__ == '__main__':
         "insert into student values ('12345682',	'wy5',14,'M',60);",
         "insert into student values ('12345684',	'wy6',25,'F',63);",
         "select * from student;",
-        "select * from student where sno = '12345679';",
-        "select * from student where score >= 90 and score <=95;",
-        "select * from student where score > 60 and score <65;",
         "select * from student where score >= 98;",
-        "select * from student where sage > 20 and sgender = 'F';",
+        "select * from student where sage > 20 and sgender = 'F';",#,
         "delete from student where sno = '12345678';",
         "delete from student where sname = 'wy2';",
         "select * from student;",
@@ -211,12 +217,17 @@ if __name__ == '__main__':
         "select * from orders where totalprice > 500000;",
         "insert into orders values (541959,408677,'F',241827.84,'Clerk#000002574','test: check unique');",
         "create index custkeyidx on orders (custkey);",
-        "insert into orders values (541959,408677,'F',241827.84,'Clerk#000002574','test: check unique');",
+        #"insert into orders values (541959,408677,'F',241827.84,'Clerk#000002574','test: check unique');",
+        "select * from orders;",
         "delete from orders where custkey > 430000;",
+        "select * from orders;",
         "drop index custkeyidx;",
+        "select * from orders;",
         "create index commentsidx on orders (comments);",
         "delete from orders where custkey=408677;",
+        "select * from orders;",
         "insert into orders values (541959,408677,'F',241827.84,'Clerk#000002574','test: check unique');",
+        "select * from orders;",
         "select * from orders where orderstatus='O' and comments='test: check unique';",
         "select * from orders where totalprice > 183500 and totalprice < 190000 and comments='en asymptotes are carefully qu';",
         "select * from orders where totalprice > 10 and totalprice < 1;",
@@ -224,8 +235,6 @@ if __name__ == '__main__':
         "select * from orders;",
         "drop table orders;"
     ]
-
-
 
     sql_1 = 'create table student (sno char(8),sname char(16) unique,sage int,sgender char (1),primary key ( sno ));'
     sql_2 = 'drop table student;'
@@ -240,10 +249,22 @@ if __name__ == '__main__':
 
     sql_9 = "select * from student where sgender = 'M';"
 
-    #do_query(sql_1)
+    sql_10 = "select sname,sno from student where sno = '12345678';"
+
+    sql_11 = "select * from student where sage > 20 and sgender = 'F';"
+
+    #do_query(sql_4)
     #do_query(sql_7)
     #do_query(sql_9)
 
-    map(do_query,test_banch_1)
+    #do_query(sql_11)
+    def run():
+        for sql in test_banch_2:
+            try:
+                do_query(sql)
+            except Exception,e:
+                print e
+
+    run()
+    #map(do_query,test_banch_2)
     #do_query(sql_9)
-    recorder.debug('student')
