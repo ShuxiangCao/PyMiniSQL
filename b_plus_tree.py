@@ -1,3 +1,8 @@
+#
+# This file is a copy of https://github.com/yflau/pybtree/blob/master/pybtree.pyb
+# I modified it so that it supports one key with more than one value.
+#
+
 from itertools import izip_longest
 import bisect
 import Queue

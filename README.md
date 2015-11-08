@@ -1,2 +1,2 @@
 # PyMiniSQL
-Homework for Database Principles of ZJU
+Assignment for Database Principles of ZJU
