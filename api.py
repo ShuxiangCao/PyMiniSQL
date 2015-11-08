@@ -1,8 +1,10 @@
 import re
 import recorder
-import pandas as pd
+import sys
 
 from prettytable import PrettyTable
+
+sys.setrecursionlimit(1000000)
 
 def result_to_table(result):
     if len(result) == 0:
@@ -176,6 +178,9 @@ class Tokenizer(object):
             'conditions': self.match_conditions(matches.group('extra'))
         }
 
+def flush():
+    recorder.update_catalog_file()
+
 def do_query(query):
 
     sql_tokenizer = Tokenizer(query)
@@ -240,7 +245,7 @@ if __name__ == '__main__':
         "select * from orders where totalprice > 500000;",
         "insert into orders values (541959,408677,'F',241827.84,'Clerk#000002574','test: check unique');",
         "create index custkeyidx on orders (custkey);",
-        #"insert into orders values (541959,408677,'F',241827.84,'Clerk#000002574','test: check unique');",
+        "insert into orders values (541959,408677,'F',241827.84,'Clerk#000002574','test: check unique');",
         "select * from orders;",
         "delete from orders where custkey > 430000;",
         "select * from orders;",
@@ -282,7 +287,7 @@ if __name__ == '__main__':
 
     #do_query(sql_11)
     def run(debug = True):
-        for sql in test_banch_1:
+        for sql in test_banch_2:
             if not debug:
                 try:
                     print do_query(sql)
@@ -294,6 +299,6 @@ if __name__ == '__main__':
                 if ret:
                     print ret
 
-    run()
+    run(False)
     #map(do_query,test_banch_2)
     #do_query(sql_9)

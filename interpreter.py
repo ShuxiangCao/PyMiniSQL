@@ -11,9 +11,10 @@ def exec_file(path):
     string = "".join([x.strip("\n") for x in lines]).strip("\n")
     lines = map(lambda x:x+';',string.split(';'))
 
-    for line in lines:
+    for i in xrange(len(lines)):
+        line = lines[i]
         try:
-            print "[+] %s" % line
+            print "[+] %d : %s" %(i,line)
             ret = api.do_query(line)
             if ret:
                 print ret
@@ -47,6 +48,8 @@ def main():
                 print "[-]Error : %s" % e
             end = time.time()
             print "Time escaped %f " % (end-start)
+
+        api.flush()
 
 if __name__ == '__main__':
     main()

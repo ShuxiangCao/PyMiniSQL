@@ -81,7 +81,7 @@ def create_table_file(table_name, schemas):
         if schemas[i]['type'] is 'primary_key':
             if primary_key_schema is not None:
                 raise Exception('Duplicate primary key')
-            primary_key_schema = schemas[i]
+            primary_key_schema = schemas[i].copy()
             del schemas[i]
 
     for i in range(len(schemas)):
@@ -107,8 +107,6 @@ def create_table_file(table_name, schemas):
     for i in range(len(schemas)):
         if schemas[i]['unique']:
             create_index(table_name,"#_unique_%s" % schemas[i]['name'],schemas[i]['name'])
-
-    update_catalog_file()
 
 
 def handle_value_type_pair(value,schema):
@@ -140,8 +138,6 @@ def delete_table_file(table_name):
 
     file_object = get_file_object_from_table_name(table_name)
     file_object.delete()
-
-    update_catalog_file()
 
 def insert_record(table_name, values):
 
@@ -186,8 +182,6 @@ def insert_record(table_name, values):
         id = table_dict[table_name]['column_to_id'][column]
         index.insert(value_parsed[id],start_pos)
 
-    update_catalog_file()
-
 def delete_index(index_name):
 
     if index_name not in index_dict.keys():
@@ -200,8 +194,6 @@ def delete_index(index_name):
 
     if not table_dict[table_name]['unique'][column]:
         del table_dict[table_name]['indexes'][column]
-
-    update_catalog_file()
 
 def create_index(table_name, index_name, column):
 
@@ -221,8 +213,6 @@ def create_index(table_name, index_name, column):
             if table_dict[table_name]['unique'][column]:
 
                 index_dict[index_name] = [table_name,column]
-                update_catalog_file()
-
                 return
 
             raise Exception("Index for column %s already exists." % column)
@@ -236,8 +226,6 @@ def create_index(table_name, index_name, column):
 
         index_dict[index_name] = [table_name,column]
 
-    update_catalog_file()
-
 
 def select_record_position(table_name,conditions):
 
@@ -246,7 +234,7 @@ def select_record_position(table_name,conditions):
 
     require_filter_condition = []
 
-    pos_list = [ y for x in index.values() for y in x if y is not None ]
+    pos_list = None
 
     if conditions is not None:
         for condition in conditions:
@@ -299,10 +287,16 @@ def select_record_position(table_name,conditions):
 
                 current_pos_list = [ y for x in current_pos_list for y in x if y is not None ]
 
-                if not inverse:
-                    pos_list = [x  for x in pos_list if x in current_pos_list]
+                if pos_list is None:
+                    pos_list = current_pos_list
                 else:
-                    pos_list = [x  for x in pos_list if x not in current_pos_list]
+                    if not inverse:
+                        pos_list = [x  for x in pos_list if x in current_pos_list]
+                    else:
+                        pos_list = [x  for x in pos_list if x not in current_pos_list]
+
+    if pos_list is None:
+        pos_list = [ y for x in table_catalog['primary_index'].values() for y in x if y is not None ]
 
     return pos_list,require_filter_condition
 
@@ -414,8 +408,6 @@ def delete_records(table_name,conditions):
 
             if index is not None:
                 index.delete(data,record['#_pos'])
-
-    update_catalog_file()
 
 def debug(table_name):
     print table_dict[table_name]['indexes']
