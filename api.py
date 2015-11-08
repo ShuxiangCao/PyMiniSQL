@@ -1,5 +1,6 @@
 import re
 import recorder
+import pandas as pd
 
 
 class Tokenizer(object):
@@ -67,7 +68,7 @@ class Tokenizer(object):
 
             schema_dict = {
                 'name': schema_match.group('name'),
-                'unique': unique_match is None
+                'unique': unique_match is not None
             }
 
             if char_match:
@@ -156,8 +157,10 @@ class Tokenizer(object):
         }
 
 def do_query(query):
-    sql_tokenizer = Tokenizer(query)
+
     print query
+
+    sql_tokenizer = Tokenizer(query)
     try:
         op_dict = sql_tokenizer.tokenize()
     except:
@@ -173,6 +176,14 @@ def do_query(query):
         ret = recorder.insert_record(op_dict['table_name'], op_dict['values'])
     elif op_dict['op'] == 'select':
         ret = recorder.select_record(op_dict['table_name'],op_dict['colunms'],op_dict['conditions'])
+        print_dict = {}
+        for i in range(len(ret)):
+            print_dict[i] = ret[i]
+
+        if len(print_dict) == 0:
+            return 'Empty set.'
+        ret = pd.DataFrame(print_dict).transpose()
+        print ret
     elif op_dict['op'] == 'create_index':
         ret = recorder.create_index(op_dict['table_name'],op_dict['index_name'],op_dict['key'])
     elif op_dict['op'] == 'drop_index':
@@ -182,10 +193,9 @@ def do_query(query):
     elif op_dict['op'] == 'drop_table':
         ret = recorder.delete_table_file(op_dict['table_name'])
     else:
-        print op_dict
         raise Exception("%s doesn\'t support" % query)
 
-    print ret
+    return ret
 
 if __name__ == '__main__':
 
@@ -258,12 +268,15 @@ if __name__ == '__main__':
     #do_query(sql_9)
 
     #do_query(sql_11)
-    def run():
-        for sql in test_banch_2:
-            try:
+    def run(debug = True):
+        for sql in test_banch_1:
+            if not debug:
+                try:
+                    do_query(sql)
+                except Exception,e:
+                    print e
+            else:
                 do_query(sql)
-            except Exception,e:
-                print e
 
     run()
     #map(do_query,test_banch_2)

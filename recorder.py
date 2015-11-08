@@ -246,7 +246,7 @@ def select_record_position(table_name,conditions):
 
     require_filter_condition = []
 
-    pos_list =  index.values()
+    pos_list = [ y for x in index.values() for y in x if y is not None ]
 
     if conditions is not None:
         for condition in conditions:
@@ -295,14 +295,14 @@ def select_record_position(table_name,conditions):
                 if range_query:
                     current_pos_list = index.values(min,max)
                 else:
-                    current_pos_list = [index[right_value]]
+                    current_pos_list = [index[right_value]] if index[right_value] else []
+
+                current_pos_list = [ y for x in current_pos_list for y in x if y is not None ]
 
                 if not inverse:
                     pos_list = [x  for x in pos_list if x in current_pos_list]
                 else:
                     pos_list = [x  for x in pos_list if x not in current_pos_list]
-
-    pos_list = [ y for x in pos_list for y in x]
 
     return pos_list,require_filter_condition
 
