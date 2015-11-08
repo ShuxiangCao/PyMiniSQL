@@ -2,6 +2,19 @@ import re
 import recorder
 import pandas as pd
 
+from prettytable import PrettyTable
+
+def result_to_table(result):
+    if len(result) == 0:
+        return "Empty set."
+
+    columns = result[0].keys()
+    x = PrettyTable(columns)
+    x.padding_width = 1 # One space between column edges and contents (default)
+
+    map(lambda row:x.add_row(row.values()),result)
+
+    return x
 
 class Tokenizer(object):
 
@@ -15,7 +28,8 @@ class Tokenizer(object):
             "create_index": self.create_index,
             "select": self.select,
             "insert": self.insert,
-            "delete": self.delete
+            "delete": self.delete,
+            "nop": self.nop
         }
 
     def tokenize(self):
@@ -23,6 +37,12 @@ class Tokenizer(object):
             result = func()
             if result:
                 return result
+
+    def nop(self):
+        matches = re.match('^\s*;', self.query)
+        return{
+            'op': 'nop'
+        } if matches else None
 
     def drop_index(self):
         matches = re.match('drop\s+index\s+(?P<index_name>\S+)\s*;', self.query)
@@ -158,8 +178,6 @@ class Tokenizer(object):
 
 def do_query(query):
 
-    print query
-
     sql_tokenizer = Tokenizer(query)
     try:
         op_dict = sql_tokenizer.tokenize()
@@ -175,15 +193,8 @@ def do_query(query):
     elif op_dict['op'] == 'insert':
         ret = recorder.insert_record(op_dict['table_name'], op_dict['values'])
     elif op_dict['op'] == 'select':
-        ret = recorder.select_record(op_dict['table_name'],op_dict['colunms'],op_dict['conditions'])
-        print_dict = {}
-        for i in range(len(ret)):
-            print_dict[i] = ret[i]
-
-        if len(print_dict) == 0:
-            return 'Empty set.'
-        ret = pd.DataFrame(print_dict).transpose()
-        print ret
+        records = recorder.select_record(op_dict['table_name'],op_dict['colunms'],op_dict['conditions'])
+        ret = result_to_table(records)
     elif op_dict['op'] == 'create_index':
         ret = recorder.create_index(op_dict['table_name'],op_dict['index_name'],op_dict['key'])
     elif op_dict['op'] == 'drop_index':
@@ -192,6 +203,8 @@ def do_query(query):
         ret = recorder.delete_records(op_dict['table_name'],op_dict['conditions'])
     elif op_dict['op'] == 'drop_table':
         ret = recorder.delete_table_file(op_dict['table_name'])
+    elif op_dict['op'] == 'nop':
+        return None
     else:
         raise Exception("%s doesn\'t support" % query)
 
@@ -272,11 +285,14 @@ if __name__ == '__main__':
         for sql in test_banch_1:
             if not debug:
                 try:
-                    do_query(sql)
+                    print do_query(sql)
                 except Exception,e:
                     print e
             else:
-                do_query(sql)
+                print sql
+                ret = do_query(sql)
+                if ret:
+                    print ret
 
     run()
     #map(do_query,test_banch_2)
