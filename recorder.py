@@ -5,7 +5,6 @@ import config
 import buffer
 import re
 from b_plus_tree import BPTree
-from index import FakeIndex
 
 table_dict = {}
 index_dict = {}
